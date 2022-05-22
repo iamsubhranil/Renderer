@@ -116,6 +116,8 @@ struct Matrix {
 
     bool print() { return print_values(values, row, col); }
 
+    void destroy() { free(values); }
+
     // ~Matrix() { free(values); }
 };
 
@@ -216,6 +218,11 @@ struct ProjectionMatrix : public Matrix {
 
     void finalize_dimension() {
         swap_buffer = (double *)malloc(sizeof(double) * (row * col));
+    }
+
+    void destroy() {
+        free(values);
+        free(swap_buffer);
     }
 
     ProjectionMatrix &operator*(const ConstantMatrix<4, 4> &mat2) {

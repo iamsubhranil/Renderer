@@ -51,4 +51,12 @@ struct Object3D {
     void rotate_z(double angle) {
         vertices.multiply(Transform::rotate_z(angle));
     }
+
+    void destroy() {
+        vertices.destroy();
+        faces.destroy();
+        projectionMatrix.destroy();
+        free(randomFaceColors);
+        free(plot_points);
+    }
 };

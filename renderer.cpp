@@ -7,7 +7,11 @@
 
 #include "renderer.h"
 
-Renderer::Renderer(int argc, char **argv) {
+const char* objectList[] = {
+    "obj/apartment.obj", "obj/basketball.obj", "obj/cat.obj", "obj/deer.obj",
+    "obj/house.obj",     "obj/tank.obj",       "obj/wolf.obj"};
+
+Renderer::Renderer(int argc, char** argv) {
     // returns zero on success else non-zero
     if (SDL_Init(SDL_INIT_VIDEO) != 0) {
         printf("error initializing SDL: %s\n", SDL_GetError());
@@ -36,6 +40,7 @@ void Renderer::run() {
     bool keys[322] = {false};
     bool dumpVertices = false;
     Uint64 lastTick = SDL_GetTicks64();
+    int objectCount = 0;
     while (!close) {
         SDL_Event event;
         while (SDL_PollEvent(&event)) {
@@ -57,6 +62,14 @@ void Renderer::run() {
                     break;
                 };
             }
+        }
+        if (keys[SDLK_n]) {
+            object.destroy();
+            camera.init(this, {0, 0, 0});
+            projection.init(this);
+            object = Object3D::loadObj(objectList[objectCount], this);
+            objectCount = (objectCount + 1) % 7;
+            keys[SDLK_n] = false;
         }
         camera.control(keys);
         SDL_SetRenderDrawColor(renderer, 0, 0, 0, 0);
