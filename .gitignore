@@ -1,0 +1,9 @@
+py/__pycache__
+py/venv
+*.obj
+obj/
+*.o
+perf.*
+.depend
+.gdb_history
+renderer
