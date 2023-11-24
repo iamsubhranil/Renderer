@@ -4,12 +4,15 @@ endif
 
 override CXXFLAGS += -Wall -Wextra -std=$(CXXSTD)
 override LDFLAGS += `sdl2-config --libs --cflags`
+override LDFLAGS += -lcudart -L/opt/cuda/targets/x86_64-linux/lib/
 
 RM=rm -f
 # $(wildcard *.cpp /xxx/xxx/*.cpp): get all .cpp files from the current directory and dir "/xxx/xxx/"
 SRCS := $(wildcard */*.cpp *.cpp)
+CSRCS := $(wildcard *.cu)
 # $(patsubst %.cpp,%.o,$(SRCS)): substitute all ".cpp" file name strings to ".o" file name strings
 OBJS := $(patsubst %.cpp,%.o,$(SRCS))
+OBJS += $(patsubst %.cu,%.o,$(CSRCS))
 
 # Allows one to enable verbose builds with VERBOSE=1
 V := @
@@ -21,12 +24,15 @@ all: release
 
 release: CXXFLAGS += -O3
 release: LDFLAGS += -s
+release: NVFLAGS += -O3
 release: build
 
 profile: CXXFLAGS += -O2 -g3
+profile: NVFLAGS += -O2 -g3
 profile: build
 
 debug: CXXFLAGS += -g3 -DDEBUG
+debug: NVFLAGS += -g -G
 debug: build
 
 pgo: merge_profraw pgouse
@@ -76,6 +82,9 @@ distclean: clean
 	$(RM) *~ .depend
 
 include .depend
+
+kernel.o: kernel.cu
+	nvcc $(NVFLAGS) -c -o kernel.o kernel.cu
 
 %.o: %.cpp
 	$(CXX) $(CXXFLAGS) $(CPPFLAGS) -c $< -o $@

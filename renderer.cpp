@@ -38,7 +38,7 @@ void Renderer::draw(bool dumpMatrices) { object.draw(dumpMatrices); }
 void Renderer::run() {
     int close = 0;
     bool keys[322] = {false};
-    bool dumpVertices = false;
+    bool dumpVertices = true;
     Uint64 lastTick = SDL_GetTicks64();
     int objectCount = 0;
     while (!close) {
@@ -75,10 +75,9 @@ void Renderer::run() {
         SDL_SetRenderDrawColor(renderer, 0, 0, 0, 0);
         SDL_RenderClear(renderer);
         draw(dumpVertices);
-        dumpVertices = false;
-        SDL_RenderPresent(renderer);
+        MEASURE(SDL_RenderPresent(renderer));
         Uint64 currentTick = SDL_GetTicks64();
-        printf("FrameTime: %3ldms\r", currentTick - lastTick);
+        // printf("FrameTime: %3ldms\n", currentTick - lastTick);
         lastTick = currentTick;
 
         // SDL_Delay(1000 / FPS);

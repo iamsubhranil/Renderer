@@ -1,8 +1,30 @@
 #pragma once
 
+#include <SDL2/SDL_timer.h>
 #include <math.h>
 
 #include <cstdio>
+
+#include "kernel.h"
+
+#ifdef DEBUG
+#define MEASURE(x)                                      \
+    do {                                                \
+        Uint64 start_step = SDL_GetTicks64();           \
+        x;                                              \
+        Uint64 end_step = SDL_GetTicks64();             \
+        printf(#x ": %3ldms\n", end_step - start_step); \
+    } while (0)
+
+#define MEASURE_START(x) Uint64 __measure_start_##x = SDL_GetTicks64();
+#define MEASURE_END(x)                           \
+    Uint64 __measure_end_##x = SDL_GetTicks64(); \
+    printf(#x ": %3ldms\n", __measure_end_##x - __measure_start_##x);
+#else
+#define MEASURE(x) x;
+#define MEASURE_START(x)
+#define MEASURE_END(x)
+#endif
 
 template <int M, int N>
 struct ConstantMatrix;
@@ -19,23 +41,47 @@ struct Point3D {
 };
 
 struct Matrix {
-    int row, col;
+    int row, col, allocated_rows;
     double *values;
+    double *cpu_values;
+
+#ifdef DEBUG
+    double *print_values_cpy;
+#endif
 
     Matrix(int r, int c) {
         row = r;
         col = c;
-        values = (double *)malloc(sizeof(double) * (row * col));
+        allocated_rows = r;
+        values = (double *)GPU::malloc(sizeof(double) * (row * col));
+        cpu_values = NULL;
+
+#ifdef DEBUG
+        print_values_cpy = NULL;
+#endif
     }
 
+    void moveToCpu() {
+        cpu_values = (double *)malloc(sizeof(double) * (row * col));
+        GPU::memcpy(cpu_values, values, sizeof(double) * (row * col), true);
+    }
+
+    double at(int i, int j) { return cpu_values[i * col + j]; }
+
     Matrix() {
-        row = col = 0;
+        row = col = allocated_rows = 0;
         values = NULL;
+        cpu_values = NULL;
+#ifdef DEBUG
+        print_values_cpy = NULL;
+#endif
     }
 
     template <typename... T>
     Matrix(int r, int c, const T &...newvals) : Matrix(r, c) {
-        assign(values, 0, newvals...);
+        double tempValues[r * c];
+        assign(tempValues, 0, newvals...);
+        GPU::memcpy(values, tempValues, sizeof(double) * r * c);
     }
 
     template <typename... T>
@@ -52,56 +98,50 @@ struct Matrix {
 
     template <typename... T>
     void appendRow(const T &...val) {
-        values = (double *)realloc(values, sizeof(double) * (row + 1) * col);
-        assign(values, row * col, val...);
+        double newValues[col];
+        assign(newValues, 0, val...);
+        if (row == allocated_rows) {
+            if (allocated_rows == 0)
+                allocated_rows = 2;
+            else
+                allocated_rows *= 2;
+            values =
+                (double *)GPU::realloc(values, sizeof(double) * row * col,
+                                       sizeof(double) * allocated_rows * col);
+        }
+        GPU::memcpy(&values[row * col], newValues, sizeof(double) * col);
         row++;
     }
 
-    static constexpr void multiply(const int row1, const int col1,
-                                   const int col2, const double *left_values,
-                                   const double *right_values, double *result) {
-        int left_pointer = 0;
-        int result_pointer = 0;
-        for (int i = 0; i < row1; ++i) {
-            for (int j = 0; j < col2; ++j) {
-                int right_pointer = 0;
-                result[result_pointer + j] = 0;
-                for (int k = 0; k < col1; ++k) {
-                    result[result_pointer + j] +=
-                        left_values[left_pointer + k] *
-                        right_values[right_pointer + j];
-                    right_pointer += col2;
-                }
-            }
-            left_pointer += col1;
-            result_pointer += col2;
-        }
+    static void multiply(const int row1, const int col1, const int col2,
+                         const double *left_values, const double *right_values,
+                         double *result, bool leftOnGpu, bool rightOnGpu,
+                         bool resultOnGpu) {
+        GPU::multiply(row1, col1, col2, left_values, right_values, result,
+                      leftOnGpu, rightOnGpu, resultOnGpu);
     }
 
-    double &at(int i) const { return values[i]; }
-    double &at(int i, int j) const { return values[i * col + j]; }
+    void finalize_dimension() {
+        if (allocated_rows > row) {
+            values = (double *)GPU::realloc(
+                values, sizeof(double) * allocated_rows * col,
+                sizeof(double) * row * col);
+            allocated_rows = row;
+        }
+    }
 
     Matrix operator*(const Matrix &newmat) {
         Matrix res(row, newmat.col);
-        multiply(row, col, newmat.col, values, newmat.values, res.values);
+        multiply(row, col, newmat.col, values, newmat.values, res.values, true,
+                 true, true);
         return res;
     }
 
-    void normalizeAndCutoffAt(int i, int offset) {
-        values[i + offset] /= values[i + 3];
-        if (values[i + offset] > 1 || values[i + offset] < -1) {
-            values[i + offset] = 0;
-        }
+    void normalizeAndCutoff() {
+        GPU::normalizeAndCutOff(row, col, values, true);
     }
 
-    void normalizeAndCutoff() {
-        for (int i = 0; i < row * col; i += col) {
-            normalizeAndCutoffAt(i, 0);
-            normalizeAndCutoffAt(i, 1);
-            normalizeAndCutoffAt(i, 2);
-            values[i + 3] = 1;
-        }
-    }
+#ifdef DEBUG
 
     static bool print_values(double *values, int row, int col) {
         for (int i = 0; i < row; i++) {
@@ -114,9 +154,17 @@ struct Matrix {
         return true;
     }
 
-    bool print() { return print_values(values, row, col); }
+    bool print() {
+        if (!print_values_cpy) {
+            print_values_cpy = (double *)malloc(sizeof(double) * row * col);
+        }
+        GPU::memcpy(print_values_cpy, values, sizeof(double) * row * col, true);
+        return Matrix::print_values(print_values_cpy, row, col);
+    }
 
-    void destroy() { free(values); }
+#endif
+
+    void destroy() { GPU::free(values); }
 
     // ~Matrix() { free(values); }
 };
@@ -152,13 +200,34 @@ struct ConstantMatrix {
     template <int O>
     ConstantMatrix<M, O> operator*(const ConstantMatrix<N, O> &newmat) {
         ConstantMatrix<M, O> result;
-        Matrix::multiply(M, N, O, values, newmat.values, result.values);
+
+        int left_pointer = 0;
+        int result_pointer = 0;
+        for (int i = 0; i < M; ++i) {
+            for (int j = 0; j < O; ++j) {
+                int right_pointer = 0;
+                result.values[result_pointer + j] = 0;
+                for (int k = 0; k < N; ++k) {
+                    result.values[result_pointer + j] +=
+                        values[left_pointer + k] *
+                        newmat.values[right_pointer + j];
+                    right_pointer += O;
+                }
+            }
+            left_pointer += N;
+            result_pointer += O;
+        }
+
+        // Matrix::multiply(M, N, O, values, newmat.values, result.values,
+        // false,
+        //                 false, false);
         return result;
     }
 
     Matrix operator*(const Matrix &newmat) {
         Matrix res(M, newmat.col);
-        Matrix::multiply(M, N, newmat.col, values, newmat.values, res.values);
+        Matrix::multiply(M, N, newmat.col, values, newmat.values, res.values,
+                         false, true, true);
         return res;
     }
 
@@ -177,52 +246,79 @@ struct ConstantMatrix {
     const double &at(int i) const { return values[i]; }
     double &at(int i, int j) { return values[i * col + j]; }
 
+#ifdef DEBUG
     bool print() { return Matrix::print_values(values, row, col); }
+#endif
 };
 
 template <int M, int N>
 Matrix operator*(const Matrix &mat1, const ConstantMatrix<M, N> &mat2) {
     Matrix res(mat1.row, mat2.col);
     Matrix::multiply(mat1.row, mat1.col, mat2.col, mat1.values, mat2.values,
-                     res.values);
+                     res.values, true, false, true);
     return res;
 }
 
 struct ProjectionMatrix : public Matrix {
     double *swap_buffer;
+    double *screen_buffer;
+    bool dirty;
 
-    ProjectionMatrix() { swap_buffer = NULL; }
+    ProjectionMatrix() {
+        swap_buffer = NULL;
+        screen_buffer = NULL;
+        dirty = true;
+    }
 
     template <typename... T>
     ProjectionMatrix(int r, int c, const T &...newvals)
         : Matrix(r, c, newvals...) {
-        swap_buffer = (double *)malloc(sizeof(double) * (row * col));
+        swap_buffer = (double *)GPU::malloc(sizeof(double) * (row * col));
+        screen_buffer = (double *)malloc(sizeof(double) * row * col);
+        dirty = true;
     }
 
     ProjectionMatrix(int r, int c) : Matrix(r, c) {
-        swap_buffer = (double *)malloc(sizeof(double) * (row * col));
+        swap_buffer = (double *)GPU::malloc(sizeof(double) * (row * col));
+        screen_buffer = (double *)malloc(sizeof(double) * row * col);
+        dirty = true;
     }
 
     void multiply_and_assign(const Matrix &mat1,
                              const ConstantMatrix<4, 4> &mat2) {
         Matrix::multiply(mat1.row, mat1.col, mat2.col, mat1.values, mat2.values,
-                         values);
+                         values, true, false, true);
+        dirty = true;
     }
 
     void multiply(const ConstantMatrix<4, 4> &mat2) {
-        Matrix::multiply(row, col, mat2.col, values, mat2.values, swap_buffer);
+        Matrix::multiply(row, col, mat2.col, values, mat2.values, swap_buffer,
+                         true, false, true);
         double *bak = values;
         values = swap_buffer;
         swap_buffer = bak;
+        dirty = true;
     }
 
     void finalize_dimension() {
-        swap_buffer = (double *)malloc(sizeof(double) * (row * col));
+        Matrix::finalize_dimension();
+        swap_buffer = (double *)GPU::malloc(sizeof(double) * (row * col));
+        screen_buffer = (double *)malloc(sizeof(double) * row * col);
+        dirty = true;
+    }
+
+    double at(int i, int j) {
+        if (dirty) {
+            GPU::memcpy(screen_buffer, values, sizeof(double) * (row * col),
+                        true);
+            dirty = false;
+        }
+        return screen_buffer[i * col + j];
     }
 
     void destroy() {
-        free(values);
-        free(swap_buffer);
+        GPU::free(values);
+        GPU::free(swap_buffer);
     }
 
     ProjectionMatrix &operator*(const ConstantMatrix<4, 4> &mat2) {

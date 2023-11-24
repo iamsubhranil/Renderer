@@ -15,6 +15,7 @@ void Object3D::prepare() {
         randomFaceColors[i * 3 + 1] = rand();
         randomFaceColors[i * 3 + 2] = rand();
     }
+    faces.moveToCpu();
 }
 
 void Object3D::screenProjection(bool dumpMatrices) {
@@ -63,10 +64,11 @@ void Object3D::screenProjection(bool dumpMatrices) {
         faces.print();
     }
 #endif
+    MEASURE_START(drawLines);
     int *faceColor = randomFaceColors;
     for (int i = 0; i < faces.row; i++) {
         int pointCount = 0;
-        double *face = &faces.values[i * faces.col];
+        double *face = &faces.cpu_values[i * faces.col];
         for (int j = 0; j < faces.col; j++) {
             plot_points[pointCount].x = projectionMatrix.at(face[j], 0);
             plot_points[pointCount].y = projectionMatrix.at(face[j], 1);
@@ -84,13 +86,15 @@ void Object3D::screenProjection(bool dumpMatrices) {
         faceColor += 3;
         SDL_RenderDrawLines(renderer->renderer, plot_points, pointCount);
     }
-
+    MEASURE_END(drawLines);
+    MEASURE_START(drawPoints);
     for (int i = 0; i < projectionMatrix.row; i++) {
         double x = projectionMatrix.at(i, 0);
         double y = projectionMatrix.at(i, 1);
         if (x == renderer->H_WIDTH || y == renderer->H_HEIGHT) continue;
         SDL_RenderDrawPoint(renderer->renderer, x, y);
     }
+    MEASURE_END(drawPoints);
 }
 
 Object3D Object3D::loadObj(const char *file, Renderer *r) {
@@ -168,6 +172,7 @@ Object3D Object3D::loadObj(const char *file, Renderer *r) {
     free(bak);
 
     obj.vertices.finalize_dimension();
+    obj.faces.finalize_dimension();
     obj.prepare();
 
     return obj;
