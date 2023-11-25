@@ -1,4 +1,5 @@
 #include "matrix.h"
+#include <cublas_v2.h>
 
 struct GPUBuffer {
     int dim;
@@ -68,12 +69,20 @@ void GPU::multiply(const int row1, const int col1, const int col2,
         newout = outbuffer->values;
     }
 
-    dim3 dimBlock(16, 16);
+    dim3 dimBlock(16, 64);
     dim3 dimGrid((col2 + dimBlock.x - 1) / dimBlock.x,
                  (row1 + dimBlock.y - 1) / dimBlock.y);
 
-    cudaMultiply<<<dimGrid, dimBlock>>>(row1, col1, col2, v1,
-                                        v2, newout);
+    // cudaMultiply<<<dimGrid, dimBlock>>>(row1, col1, col2, v1,
+    //                        v2, newout);
+
+    cublasHandle_t handle;
+    cublasCreate(&handle);
+
+    const double alpha = 1.0f, beta = 0.0f;
+    cublasDgemm(handle, CUBLAS_OP_N, CUBLAS_OP_N, col1, row1, col2, &alpha, v2, col1, v1, col2, &beta, newout, col1);
+
+    cublasDestroy(handle);
 
     if(!outOnGpu) {
         cudaMemcpy(out, newout, sizeof(double) * row1 * col2,
@@ -119,7 +128,7 @@ void GPU::normalizeAndCutOff(int row1, int col1, double *mat, bool onGpu) {
         newmat = buffer->values;
     }
 
-    int threadsPerBlock = 16;
+    int threadsPerBlock = 512;
     int numBlocks = (row1 * col1 + threadsPerBlock - 1) / threadsPerBlock;
 
     cudaNormalize<<<numBlocks, threadsPerBlock>>>(newmat, row1 * col1 / 4);
