@@ -4,19 +4,21 @@
 struct Renderer;
 
 struct Camera {
+   private:
     ConstantMatrix<1, 4> forward = ConstantMatrix<1, 4>(0, 0, 1, 1);
     ConstantMatrix<1, 4> up = ConstantMatrix<1, 4>(0, 1, 0, 1);
     ConstantMatrix<1, 4> right = ConstantMatrix<1, 4>(1, 0, 0, 1);
     constexpr static double H_FOV = M_PI / 3;
     constexpr static double NEAR_PLANE = 0.1;
     constexpr static double FAR_PLANE = 200;
-    constexpr static double MOVING_SPEED = 0.08;
+    constexpr static double MOVING_SPEED = 1.5;
     constexpr static double ROTATION_SPEED = 0.01;
 
     Renderer *renderer;
     ConstantMatrix<1, 4> position;
     double v_fov;
 
+   public:
     Camera() {}
     void init(Renderer *r, Point3D p);
     void control(const bool *keys);
@@ -37,4 +39,9 @@ struct Camera {
     ConstantMatrix<4, 4> cameraMatrix() {
         return translateMatrix() * rotateMatrix();
     }
+
+    static constexpr double getFarPlane() { return FAR_PLANE; }
+    static constexpr double getNearPlane() { return NEAR_PLANE; }
+    static constexpr double getHFOV() { return H_FOV; }
+    double getVFOV() { return v_fov; }
 };

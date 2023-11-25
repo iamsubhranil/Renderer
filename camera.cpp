@@ -2,6 +2,7 @@
 
 #include <SDL2/SDL_keycode.h>
 
+#include "kernel.h"
 #include "renderer.h"
 
 void Camera::init(Renderer *r, Point3D p) {

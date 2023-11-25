@@ -3,11 +3,11 @@
 #include "renderer.h"
 
 void Projection::init(Renderer *renderer) {
-    near = renderer->camera.NEAR_PLANE;
-    far = renderer->camera.FAR_PLANE;
-    right = tan(renderer->camera.H_FOV / 2);
+    near = renderer->camera.getNearPlane();
+    far = renderer->camera.getFarPlane();
+    right = tan(renderer->camera.getHFOV() / 2);
     left = -right;
-    top = tan(renderer->camera.v_fov / 2);
+    top = tan(renderer->camera.getVFOV() / 2);
     bottom = -top;
 
     double m00 = 2 / (right - left);
