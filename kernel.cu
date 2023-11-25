@@ -1,36 +1,46 @@
-#include "matrix.h"
 #include <cublas_v2.h>
+#include <cuda.h>
+#include <cuda_runtime.h>
 
-struct GPUBuffer {
-    int dim;
-    double *values;
-    bool inuse;
-    GPUBuffer *next;
-};
+#include "matrix.h"
 
-GPUBuffer *buffers = NULL;
+GPU::Buffer *buffers = NULL;
 
-GPUBuffer *getBuffer(const int dim, const double *values) {
-    GPUBuffer **buff = &buffers;
+cublasHandle_t BLAShandle = NULL;
+
+void GPU::init() {
+    cublasCreate(&BLAShandle);
+}
+
+GPU::Buffer* GPU::Buffer::alloc(size_t size) {
+    GPU::Buffer **buff = &buffers;
     while (*buff) {
-        GPUBuffer *buffer = *buff;
-        if (!buffer->inuse && buffer->dim == dim) {
+        GPU::Buffer *buffer = *buff;
+        if (!buffer->inuse && buffer->dim == size) {
             buffer->inuse = true;
-            cudaMemcpy(buffer->values, values, sizeof(double) * dim,
-                       cudaMemcpyHostToDevice);
             return buffer;
         }
         buff = &(buffer->next);
     }
-    GPUBuffer *nbuff = (GPUBuffer *)malloc(sizeof(GPUBuffer));
-    nbuff->dim = dim;
+
+    GPU::Buffer *nbuff = (GPU::Buffer *)std::malloc(sizeof(GPU::Buffer));
+    nbuff->dim = size;
     nbuff->inuse = true;
-    cudaMalloc(&nbuff->values, sizeof(double) * dim);
-    cudaMemcpy(nbuff->values, values, sizeof(double) * dim,
-               cudaMemcpyHostToDevice);
+    cudaMalloc((void**)&nbuff->values, sizeof(double) * size);
     nbuff->next = NULL;
     *buff = nbuff;
     return nbuff;
+}
+
+void GPU::Buffer::free() {
+    inuse = false;
+}
+
+GPU::Buffer *getBuffer(const size_t dim, const double *values) {
+    GPU::Buffer* buff = GPU::Buffer::alloc(dim);
+    cudaMemcpy(buff->values, values, sizeof(double) * dim,
+               cudaMemcpyHostToDevice);
+    return buff;
 }
 
 __global__ void cudaMultiply(const int rowsA, const int colsA, const int colsB,
@@ -48,23 +58,23 @@ __global__ void cudaMultiply(const int rowsA, const int colsA, const int colsB,
 }
 
 void GPU::multiply(const int row1, const int col1, const int col2,
-                 const double *v1, const double *v2, double *out,
-                 bool v1OnGpu, bool v2OnGpu, bool outOnGpu) {
-    GPUBuffer *m1buffer = NULL, *m2buffer = NULL, *outbuffer = NULL;
+                   const double *v1, const double *v2, double *out,
+                   bool v1OnGpu, bool v2OnGpu, bool outOnGpu) {
+    GPU::Buffer *m1buffer = NULL, *m2buffer = NULL, *outbuffer = NULL;
 
     double *newout = out;
 
-    if(!v1OnGpu) {
+    if (!v1OnGpu) {
         m1buffer = getBuffer(row1 * col1, v1);
         v1 = m1buffer->values;
     }
 
-    if(!v2OnGpu) {
+    if (!v2OnGpu) {
         m2buffer = getBuffer(col1 * col2, v2);
         v2 = m2buffer->values;
     }
 
-    if(!outOnGpu) {
+    if (!outOnGpu) {
         outbuffer = getBuffer(row1 * col2, out);
         newout = outbuffer->values;
     }
@@ -76,25 +86,18 @@ void GPU::multiply(const int row1, const int col1, const int col2,
     // cudaMultiply<<<dimGrid, dimBlock>>>(row1, col1, col2, v1,
     //                        v2, newout);
 
-    cublasHandle_t handle;
-    cublasCreate(&handle);
-
     const double alpha = 1.0f, beta = 0.0f;
-    cublasDgemm(handle, CUBLAS_OP_N, CUBLAS_OP_N, col1, row1, col2, &alpha, v2, col1, v1, col2, &beta, newout, col1);
+    cublasDgemm(BLAShandle, CUBLAS_OP_N, CUBLAS_OP_N, col1, row1, col2, &alpha, v2,
+                    col1, v1, col2, &beta, newout, col1);
 
-    cublasDestroy(handle);
-
-    if(!outOnGpu) {
+    if (!outOnGpu) {
         cudaMemcpy(out, newout, sizeof(double) * row1 * col2,
                    cudaMemcpyDeviceToHost);
     }
 
-    if(m1buffer)
-        m1buffer->inuse = false;
-    if(m2buffer)
-        m2buffer->inuse = false;
-    if(outbuffer)
-        outbuffer->inuse = false;
+    if (m1buffer) m1buffer->inuse = false;
+    if (m2buffer) m2buffer->inuse = false;
+    if (outbuffer) outbuffer->inuse = false;
 }
 
 __global__ void cudaNormalize(double *values, int n) {
@@ -120,10 +123,10 @@ __global__ void cudaCutOff(double *values, int n) {
 }
 
 void GPU::normalizeAndCutOff(int row1, int col1, double *mat, bool onGpu) {
-    GPUBuffer *buffer = NULL;
+    GPU::Buffer *buffer = NULL;
     double *newmat = mat;
 
-    if(!onGpu) {
+    if (!onGpu) {
         buffer = getBuffer(row1 * col1, mat);
         newmat = buffer->values;
     }
@@ -134,35 +137,37 @@ void GPU::normalizeAndCutOff(int row1, int col1, double *mat, bool onGpu) {
     cudaNormalize<<<numBlocks, threadsPerBlock>>>(newmat, row1 * col1 / 4);
     cudaCutOff<<<numBlocks, threadsPerBlock>>>(newmat, row1 * col1);
 
-    if(!onGpu) {
+    if (!onGpu) {
         cudaMemcpy(mat, newmat, sizeof(double) * row1 * col1,
-               cudaMemcpyDeviceToHost);
+                   cudaMemcpyDeviceToHost);
 
         buffer->inuse = false;
     }
 }
 
-void* GPU::malloc(size_t size) {
+void GPU::multiply_add(double *b, const double *a, double x, int size) {
+
+    // Perform the operation b[i] += a[i] * x using cuBLAS
+    cublasDaxpy(BLAShandle, size, &x, a, 1, b, 1);
+}
+
+void *GPU::malloc(size_t size) {
     void *ret;
     cudaMalloc(&ret, size);
     return ret;
 }
 
-void GPU::free(void *mem) {
-    cudaFree(mem);
-}
+void GPU::free(void *mem) { cudaFree(mem); }
 
 void GPU::memcpy(void *dst, void *src, size_t siz, bool reverse) {
-    if(reverse) {
-        cudaMemcpy(dst, src, siz,
-                cudaMemcpyDeviceToHost);
+    if (reverse) {
+        cudaMemcpy(dst, src, siz, cudaMemcpyDeviceToHost);
     } else {
-        cudaMemcpy(dst, src, siz,
-                cudaMemcpyHostToDevice);
+        cudaMemcpy(dst, src, siz, cudaMemcpyHostToDevice);
     }
 }
 
-void* GPU::realloc(void *ptr, size_t os, size_t ns) {
+void *GPU::realloc(void *ptr, size_t os, size_t ns) {
     void *newPtr;
     cudaMalloc(&newPtr, ns);
     size_t lt = ns < os ? ns : os;
