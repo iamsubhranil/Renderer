@@ -16,6 +16,7 @@ Renderer::Renderer(int argc, char** argv) {
     if (SDL_Init(SDL_INIT_VIDEO) != 0) {
         printf("error initializing SDL: %s\n", SDL_GetError());
     }
+    GPU::init();
     window = SDL_CreateWindow("GAME", SDL_WINDOWPOS_CENTERED,
                               SDL_WINDOWPOS_CENTERED, WIDTH, HEIGHT, 0);
     renderer = SDL_CreateRenderer(window, -1, RENDER_FLAGS);
@@ -77,7 +78,8 @@ void Renderer::run() {
         draw(dumpVertices);
         MEASURE(SDL_RenderPresent(renderer));
         Uint64 currentTick = SDL_GetTicks64();
-        // printf("FrameTime: %3ldms\n", currentTick - lastTick);
+        printf("FrameTime: %3ldms\r", currentTick - lastTick);
+        fflush(stdout);
         lastTick = currentTick;
 
         // SDL_Delay(1000 / FPS);
