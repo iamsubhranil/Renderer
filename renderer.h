@@ -13,7 +13,7 @@ struct Tuple {
 };
 
 struct Renderer {
-    const int WIDTH = 1024, HEIGHT = 720;
+    const int WIDTH = 1920, HEIGHT = 1080;
     const Tuple<int, int> RES = {WIDTH, HEIGHT};
     const int H_HEIGHT = HEIGHT / 2, H_WIDTH = WIDTH / 2;
     const int FPS = 144;

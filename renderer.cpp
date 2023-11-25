@@ -17,7 +17,7 @@ Renderer::Renderer(int argc, char** argv) {
         printf("error initializing SDL: %s\n", SDL_GetError());
     }
     window = SDL_CreateWindow("GAME", SDL_WINDOWPOS_CENTERED,
-                              SDL_WINDOWPOS_CENTERED, 1024, 720, 0);
+                              SDL_WINDOWPOS_CENTERED, WIDTH, HEIGHT, 0);
     renderer = SDL_CreateRenderer(window, -1, RENDER_FLAGS);
 
     camera.init(this, {0, 0, 0});
