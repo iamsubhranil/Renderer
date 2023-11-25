@@ -113,10 +113,11 @@ struct Matrix {
         row++;
     }
 
-    static void multiply(const int row1, const int col1, const int col2,
-                         const double *left_values, const double *right_values,
-                         double *result, bool leftOnGpu, bool rightOnGpu,
-                         bool resultOnGpu) {
+    static inline void multiply(const int row1, const int col1, const int col2,
+                                const double *left_values,
+                                const double *right_values, double *result,
+                                bool leftOnGpu, bool rightOnGpu,
+                                bool resultOnGpu) {
         GPU::multiply(row1, col1, col2, left_values, right_values, result,
                       leftOnGpu, rightOnGpu, resultOnGpu);
     }
@@ -171,36 +172,56 @@ struct Matrix {
 
 template <int M, int N>
 struct ConstantMatrix {
-    const int row = M, col = N;
-    double values[M * N];
+   private:
+    double *gpu_values, *cpu_values;
+    GPU::Buffer *buffer;
+    bool dirty;
 
-    template <typename... T>
-    constexpr ConstantMatrix(const T &...newval) {
-        Matrix::assign(values, 0, newval...);
+    void copyToCPU() {
+        if (dirty) {
+            if (!cpu_values) {
+                cpu_values = (double *)malloc(sizeof(double) * M * N);
+            }
+            GPU::memcpy(cpu_values, gpu_values, sizeof(double) * M * N, true);
+        }
     }
 
-    ConstantMatrix(const ConstantMatrix<M, N> &other) {
-        for (int i = 0; i < M * N; i++) {
-            values[i] = other.values[i];
-        }
+   public:
+    ConstantMatrix() {
+        buffer = GPU::Buffer::alloc(M * N);
+        gpu_values = buffer->values;
+        cpu_values = NULL;
+        dirty = true;
+    }
+
+    template <typename... T>
+    ConstantMatrix(const T &...newval) : ConstantMatrix() {
+        fill(newval...);
+    }
+
+    ConstantMatrix(const ConstantMatrix<M, N> &other) : ConstantMatrix() {
+        GPU::memcpy(gpu_values, other.gpu_values, sizeof(double) * M * N);
     }
 
     ConstantMatrix<M, N> &operator=(const ConstantMatrix<M, N> &other) {
-        for (int i = 0; i < M * N; i++) {
-            values[i] = other.values[i];
-        }
+        GPU::memcpy(gpu_values, other.gpu_values, sizeof(double) * M * N);
+        dirty = true;
         return *this;
     }
 
     template <typename... T>
     void fill(const T &...newval) {
+        double values[M * N];
         Matrix::assign(values, 0, newval...);
+        GPU::memcpy(gpu_values, values, sizeof(double) * M * N);
+        dirty = true;
     }
 
     template <int O>
     ConstantMatrix<M, O> operator*(const ConstantMatrix<N, O> &newmat) {
         ConstantMatrix<M, O> result;
 
+        /*
         int left_pointer = 0;
         int result_pointer = 0;
         for (int i = 0; i < M; ++i) {
@@ -217,45 +238,53 @@ struct ConstantMatrix {
             left_pointer += N;
             result_pointer += O;
         }
+        */
 
-        // Matrix::multiply(M, N, O, values, newmat.values, result.values,
-        // false,
-        //                 false, false);
+        Matrix::multiply(M, N, O, gpu_values, newmat.getGPUValues(),
+                         result.getGPUValues(), true, true, true);
         return result;
     }
 
     Matrix operator*(const Matrix &newmat) {
         Matrix res(M, newmat.col);
-        Matrix::multiply(M, N, newmat.col, values, newmat.values, res.values,
-                         false, true, true);
+        Matrix::multiply(M, N, newmat.col, gpu_values, newmat.values,
+                         res.values, true, true, true);
         return res;
     }
 
-    void multiply_add(const ConstantMatrix<M, N> &other, double val) {
-        for (int i = 0; i < row * col; i++) {
-            values[i] += other.values[i] * val;
-        }
+    inline void multiply_add(const ConstantMatrix<M, N> &other, double val) {
+        GPU::multiply_add(gpu_values, other.gpu_values, val, M * N);
+        dirty = true;
     }
 
-    void multiply_sub(const ConstantMatrix<M, N> &other, double val) {
-        for (int i = 0; i < row * col; i++) {
-            values[i] -= other.values[i] * val;
-        }
+    inline void multiply_sub(const ConstantMatrix<M, N> &other, double val) {
+        GPU::multiply_add(gpu_values, other.gpu_values, -val, M * N);
+        dirty = true;
     }
 
-    const double &at(int i) const { return values[i]; }
-    double &at(int i, int j) { return values[i * col + j]; }
+    inline double *getGPUValues() const { return gpu_values; }
+
+    const double &at(int i) {
+        copyToCPU();
+        return cpu_values[i];
+    }
+    double &at(int i, int j) { return at(i * N + j); }
 
 #ifdef DEBUG
-    bool print() { return Matrix::print_values(values, row, col); }
+    bool print() {
+        copyToCPU();
+        return Matrix::print_values(cpu_values, M, N);
+    }
 #endif
+
+    ~ConstantMatrix() { buffer->free(); }
 };
 
 template <int M, int N>
 Matrix operator*(const Matrix &mat1, const ConstantMatrix<M, N> &mat2) {
     Matrix res(mat1.row, mat2.col);
-    Matrix::multiply(mat1.row, mat1.col, mat2.col, mat1.values, mat2.values,
-                     res.values, true, false, true);
+    Matrix::multiply(mat1.row, mat1.col, N, mat1.values, mat2.getGPUValues(),
+                     res.values, true, true, true);
     return res;
 }
 
@@ -286,14 +315,14 @@ struct ProjectionMatrix : public Matrix {
 
     void multiply_and_assign(const Matrix &mat1,
                              const ConstantMatrix<4, 4> &mat2) {
-        Matrix::multiply(mat1.row, mat1.col, mat2.col, mat1.values, mat2.values,
-                         values, true, false, true);
+        Matrix::multiply(mat1.row, mat1.col, 4, mat1.values,
+                         mat2.getGPUValues(), values, true, true, true);
         dirty = true;
     }
 
     void multiply(const ConstantMatrix<4, 4> &mat2) {
-        Matrix::multiply(row, col, mat2.col, values, mat2.values, swap_buffer,
-                         true, false, true);
+        Matrix::multiply(row, col, 4, values, mat2.getGPUValues(), swap_buffer,
+                         true, true, true);
         double *bak = values;
         values = swap_buffer;
         swap_buffer = bak;
