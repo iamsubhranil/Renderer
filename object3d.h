@@ -11,17 +11,15 @@ struct SDL_Vertex;
 struct Object3D {
     Renderer *renderer;
     ProjectionMatrix vertices;
-    int faces_col, faces_row;
+    const static int FACES_COL = 3;
+    int faces_row;
     std::vector<int> faces;
     ProjectionMatrix projectionMatrix;  // vertex.row * 4
     SDL_Point *plot_points;
     SDL_Vertex *sdl_vertices;
-    int *randomFaceColors;
+    Uint8 *randomFaceColors;
 
-    Object3D() {
-        faces_row = 0;
-        faces_col = 0;
-    }
+    Object3D() { faces_row = 0; }
     void prepare();
 
     static Object3D loadObj(const char *file, Renderer *r);
@@ -51,7 +49,7 @@ struct Object3D {
 
     void destroy() {
         vertices.destroy();
-        faces_col = 0;
+        faces_row = 0;
         projectionMatrix.destroy();
         free(randomFaceColors);
         free(plot_points);

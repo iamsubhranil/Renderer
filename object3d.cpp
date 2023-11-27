@@ -8,15 +8,16 @@ void Object3D::movement() { rotate_y(fmod((double)SDL_GetTicks64(), 0.005)); }
 void Object3D::prepare() {
     projectionMatrix = ProjectionMatrix(vertices.row, 4);
     plot_points =
-        (SDL_Point *)malloc(sizeof(SDL_Point) * (faces_row * (faces_col)));
+        (SDL_Point *)malloc(sizeof(SDL_Point) * (faces_row * FACES_COL));
     sdl_vertices =
-        (SDL_Vertex *)malloc(sizeof(SDL_Vertex) * faces_row * faces_col);
-    randomFaceColors = (int *)malloc(sizeof(int) * faces_row * 3);
+        (SDL_Vertex *)malloc(sizeof(SDL_Vertex) * faces_row * FACES_COL);
+    randomFaceColors =
+        (Uint8 *)malloc(sizeof(Uint8) * faces_row * FACES_COL * 3);
     srand(time(NULL));
     for (int i = 0; i < faces_row; i++) {
-        randomFaceColors[i * 3] = rand();
-        randomFaceColors[i * 3 + 1] = rand();
-        randomFaceColors[i * 3 + 2] = rand();
+        randomFaceColors[i * 3] = rand() % 255;
+        randomFaceColors[i * 3 + 1] = rand() % 255;
+        randomFaceColors[i * 3 + 2] = rand() % 255;
     }
 }
 
@@ -67,12 +68,12 @@ void Object3D::screenProjection(bool dumpMatrices) {
     }
 #endif
     MEASURE_START(drawLines);
-    int *faceColor = randomFaceColors;
+    Uint8 *faceColor = randomFaceColors;
     int pointCount = 0;
     for (int i = 0; i < faces_row; i++) {
-        const int *face = &faces.data()[i * faces_col];
+        const int *face = &faces.data()[i * FACES_COL];
         int bakPointCount = pointCount;
-        for (int j = 0; j < faces_col; j++) {
+        for (int j = 0; j < FACES_COL; j++) {
             double px = projectionMatrix.at(face[j], 0);
             double py = projectionMatrix.at(face[j], 1);
             if (px == renderer->H_WIDTH || py == renderer->H_HEIGHT) {
@@ -81,9 +82,8 @@ void Object3D::screenProjection(bool dumpMatrices) {
                 break;
             }
             sdl_vertices[pointCount].position = {(float)px, (float)py};
-            sdl_vertices[pointCount].color = {(Uint8)*faceColor++,
-                                              (Uint8)*faceColor++,
-                                              (Uint8)*faceColor++, 255};
+            sdl_vertices[pointCount].color = {*faceColor++, *faceColor++,
+                                              *faceColor++, 255};
             sdl_vertices[pointCount].tex_coord = {1.0, 1.0};
             // if (dumpMatrices)
             //    printf("%g %d %d\n", face[j], plot_points[pointCount].x,
@@ -128,7 +128,6 @@ Object3D Object3D::loadObj(const char *file, Renderer *r) {
     Object3D obj;
     obj.renderer = r;
     obj.vertices.col = 4;
-    obj.faces_col = 0;
 
     // int vcount = 0, fcount = 0;
     while (*buffer) {
@@ -159,10 +158,6 @@ Object3D Object3D::loadObj(const char *file, Renderer *r) {
             // printf("%d\n", *buffer);
             if (*buffer == '\n' || (*buffer == ' ' && *(buffer + 1) == '\n')) {
                 // we don't have 4th vertex
-                // make sure col is inited with 3
-                if (obj.faces_col == 0) {
-                    obj.faces_col = 3;
-                }
                 // printf("face %d: %d %d %d\n", fcount++, f1, f2, f3);
                 obj.faces.push_back(f1);
                 obj.faces.push_back(f2);
@@ -172,7 +167,6 @@ Object3D Object3D::loadObj(const char *file, Renderer *r) {
                 // }
                 obj.faces_row++;
             } else {
-                if (obj.faces_col == 0) obj.faces_col = 3;
                 // printf("4\n");
                 int f4 = strtol(buffer, &buffer, 10) - 1;
                 if (f4 == -1) f4 = f3;
