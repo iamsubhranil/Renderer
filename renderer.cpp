@@ -78,7 +78,7 @@ void Renderer::run() {
         draw(dumpVertices);
         MEASURE(SDL_RenderPresent(renderer));
         Uint64 currentTick = SDL_GetTicks64();
-        printf("FrameTime: %3ldms\r", currentTick - lastTick);
+        // printf("FrameTime: %3ldms\r", currentTick - lastTick);
         fflush(stdout);
         lastTick = currentTick;
 
