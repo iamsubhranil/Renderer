@@ -7,15 +7,17 @@
 void Object3D::movement() { rotate_y(fmod((double)SDL_GetTicks64(), 0.005)); }
 void Object3D::prepare() {
     projectionMatrix = ProjectionMatrix(vertices.row, 4);
-    plot_points = (SDL_Point *)malloc(sizeof(SDL_Point) * (faces.col + 1));
-    randomFaceColors = (int *)malloc(sizeof(int) * faces.row * 3);
+    plot_points =
+        (SDL_Point *)malloc(sizeof(SDL_Point) * (faces_row * (faces_col)));
+    sdl_vertices =
+        (SDL_Vertex *)malloc(sizeof(SDL_Vertex) * faces_row * faces_col);
+    randomFaceColors = (int *)malloc(sizeof(int) * faces_row * 3);
     srand(time(NULL));
-    for (int i = 0; i < faces.row; i++) {
+    for (int i = 0; i < faces_row; i++) {
         randomFaceColors[i * 3] = rand();
         randomFaceColors[i * 3 + 1] = rand();
         randomFaceColors[i * 3 + 2] = rand();
     }
-    faces.moveToCpu();
 }
 
 void Object3D::screenProjection(bool dumpMatrices) {
@@ -61,32 +63,38 @@ void Object3D::screenProjection(bool dumpMatrices) {
             "(vertices * cameraMatrix * projectionMatrix).normalizeAndCutoff() "
             "* to_screen_matrix:\n");
         projectionMatrix.print();
-        faces.print();
+        // faces.print();
     }
 #endif
     MEASURE_START(drawLines);
     int *faceColor = randomFaceColors;
-    for (int i = 0; i < faces.row; i++) {
-        int pointCount = 0;
-        double *face = &faces.cpu_values[i * faces.col];
-        for (int j = 0; j < faces.col; j++) {
-            plot_points[pointCount].x = projectionMatrix.at(face[j], 0);
-            plot_points[pointCount].y = projectionMatrix.at(face[j], 1);
+    int pointCount = 0;
+    for (int i = 0; i < faces_row; i++) {
+        const int *face = &faces.data()[i * faces_col];
+        int bakPointCount = pointCount;
+        for (int j = 0; j < faces_col; j++) {
+            double px = projectionMatrix.at(face[j], 0);
+            double py = projectionMatrix.at(face[j], 1);
+            if (px == renderer->H_WIDTH || py == renderer->H_HEIGHT) {
+                pointCount = bakPointCount;
+                faceColor = randomFaceColors + pointCount;
+                break;
+            }
+            sdl_vertices[pointCount].position = {(float)px, (float)py};
+            sdl_vertices[pointCount].color = {(Uint8)*faceColor++,
+                                              (Uint8)*faceColor++,
+                                              (Uint8)*faceColor++, 255};
+            sdl_vertices[pointCount].tex_coord = {1.0, 1.0};
             // if (dumpMatrices)
             //    printf("%g %d %d\n", face[j], plot_points[pointCount].x,
             //           plot_points[pointCount].y);
-            if (plot_points[pointCount].x == renderer->H_WIDTH ||
-                plot_points[pointCount].y == renderer->H_HEIGHT) {
-                continue;
-            }
             pointCount++;
         }
-        SDL_SetRenderDrawColor(renderer->renderer, *faceColor, *(faceColor + 1),
-                               *(faceColor + 2), 255);
-        faceColor += 3;
-        SDL_RenderDrawLines(renderer->renderer, plot_points, pointCount);
     }
+    SDL_RenderGeometry(renderer->renderer, NULL, sdl_vertices, pointCount, NULL,
+                       0);
     MEASURE_END(drawLines);
+    /*
     MEASURE_START(drawPoints);
     for (int i = 0; i < projectionMatrix.row; i++) {
         double x = projectionMatrix.at(i, 0);
@@ -95,16 +103,17 @@ void Object3D::screenProjection(bool dumpMatrices) {
         SDL_RenderDrawPoint(renderer->renderer, x, y);
     }
     MEASURE_END(drawPoints);
+    */
 }
 
 Object3D Object3D::loadObj(const char *file, Renderer *r) {
     if (file == NULL) {
-        return Object3D(r);
+        return loadObj("obj/cat.obj", r);
     }
     FILE *f = fopen(file, "r");
     if (f == NULL) {
         printf("[Error] Cannot load obj file from: %s", file);
-        return Object3D(r);
+        return loadObj("obj/cat.obj", r);
     }
 
     fseek(f, 0, SEEK_END);
@@ -119,7 +128,7 @@ Object3D Object3D::loadObj(const char *file, Renderer *r) {
     Object3D obj;
     obj.renderer = r;
     obj.vertices.col = 4;
-    obj.faces.col = 0;
+    obj.faces_col = 0;
 
     // int vcount = 0, fcount = 0;
     while (*buffer) {
@@ -151,18 +160,32 @@ Object3D Object3D::loadObj(const char *file, Renderer *r) {
             if (*buffer == '\n' || (*buffer == ' ' && *(buffer + 1) == '\n')) {
                 // we don't have 4th vertex
                 // make sure col is inited with 3
-                if (obj.faces.col == 0) obj.faces.col = 3;
+                if (obj.faces_col == 0) {
+                    obj.faces_col = 3;
+                }
                 // printf("face %d: %d %d %d\n", fcount++, f1, f2, f3);
-                if (obj.faces.col == 4) {
-                    obj.faces.appendRow(f1, f2, f3, f3);
-                } else
-                    obj.faces.appendRow(f1, f2, f3);
+                obj.faces.push_back(f1);
+                obj.faces.push_back(f2);
+                obj.faces.push_back(f3);
+                // if (obj.faces_col == 4) {
+                //    obj.faces.push_back(f3);
+                // }
+                obj.faces_row++;
             } else {
-                if (obj.faces.col == 0) obj.faces.col = 4;
+                if (obj.faces_col == 0) obj.faces_col = 3;
+                // printf("4\n");
                 int f4 = strtol(buffer, &buffer, 10) - 1;
                 if (f4 == -1) f4 = f3;
                 // printf("face %d: %d %d %d %d\n", fcount++, f1, f2, f3, f4);
-                obj.faces.appendRow(f1, f2, f3, f4);
+                obj.faces.push_back(f1);
+                obj.faces.push_back(f2);
+                obj.faces.push_back(f3);
+                // break the quad into triangles
+                obj.faces.push_back(f2);
+                obj.faces.push_back(f3);
+                obj.faces.push_back(f4);
+                obj.faces_row++;
+                obj.faces_row++;
             }
         }
         // skip line
@@ -172,7 +195,6 @@ Object3D Object3D::loadObj(const char *file, Renderer *r) {
     free(bak);
 
     obj.vertices.finalize_dimension();
-    obj.faces.finalize_dimension();
     obj.prepare();
 
     return obj;

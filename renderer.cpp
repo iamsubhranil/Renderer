@@ -39,7 +39,7 @@ void Renderer::draw(bool dumpMatrices) { object.draw(dumpMatrices); }
 void Renderer::run() {
     int close = 0;
     bool keys[322] = {false};
-    bool dumpVertices = true;
+    bool dumpVertices = false;
     Uint64 lastTick = SDL_GetTicks64();
     int objectCount = 0;
     while (!close) {
@@ -73,7 +73,7 @@ void Renderer::run() {
             keys[SDLK_n] = false;
         }
         camera.control(keys);
-        SDL_SetRenderDrawColor(renderer, 0, 0, 0, 0);
+        // SDL_SetRenderDrawColor(renderer, 0, 0, 0, 0);
         SDL_RenderClear(renderer);
         draw(dumpVertices);
         MEASURE(SDL_RenderPresent(renderer));
