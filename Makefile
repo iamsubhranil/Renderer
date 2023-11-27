@@ -4,7 +4,7 @@ endif
 
 override CXXFLAGS += -Wall -Wextra -std=$(CXXSTD)
 override LDFLAGS += `sdl2-config --libs --cflags`
-override LDFLAGS += -lcudart -lcublas -L/opt/cuda/targets/x86_64-linux/lib/
+override LDFLAGS += -lcudart -lcublas -lSDL2_ttf -L/opt/cuda/targets/x86_64-linux/lib/
 
 RM=rm -f
 # $(wildcard *.cpp /xxx/xxx/*.cpp): get all .cpp files from the current directory and dir "/xxx/xxx/"
