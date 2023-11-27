@@ -7,3 +7,5 @@ perf.*
 .depend
 .gdb_history
 renderer
+RendererProfile/
+*.ncu-rep
