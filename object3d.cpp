@@ -15,9 +15,9 @@ void Object3D::prepare() {
         (Uint8 *)malloc(sizeof(Uint8) * faces_row * FACES_COL * 3);
     srand(time(NULL));
     for (int i = 0; i < faces_row; i++) {
-        randomFaceColors[i * 3] = rand() % 255;
-        randomFaceColors[i * 3 + 1] = rand() % 255;
-        randomFaceColors[i * 3 + 2] = rand() % 255;
+        randomFaceColors[i * FACES_COL] = rand() % 255;
+        randomFaceColors[i * FACES_COL + 1] = rand() % 255;
+        randomFaceColors[i * FACES_COL + 2] = rand() % 255;
     }
 }
 
@@ -78,18 +78,18 @@ void Object3D::screenProjection(bool dumpMatrices) {
             double py = projectionMatrix.at(face[j], 1);
             if (px == renderer->H_WIDTH || py == renderer->H_HEIGHT) {
                 pointCount = bakPointCount;
-                faceColor = randomFaceColors + pointCount;
                 break;
             }
             sdl_vertices[pointCount].position = {(float)px, (float)py};
-            sdl_vertices[pointCount].color = {*faceColor++, *faceColor++,
-                                              *faceColor++, 255};
+            sdl_vertices[pointCount].color = {*faceColor, *(faceColor + 1),
+                                              *(faceColor + 2), 255};
             sdl_vertices[pointCount].tex_coord = {1.0, 1.0};
             // if (dumpMatrices)
             //    printf("%g %d %d\n", face[j], plot_points[pointCount].x,
             //           plot_points[pointCount].y);
             pointCount++;
         }
+        faceColor += 3;
     }
     SDL_RenderGeometry(renderer->renderer, NULL, sdl_vertices, pointCount, NULL,
                        0);
@@ -175,7 +175,7 @@ Object3D Object3D::loadObj(const char *file, Renderer *r) {
                 obj.faces.push_back(f2);
                 obj.faces.push_back(f3);
                 // break the quad into triangles
-                obj.faces.push_back(f2);
+                obj.faces.push_back(f1);
                 obj.faces.push_back(f3);
                 obj.faces.push_back(f4);
                 obj.faces_row++;
