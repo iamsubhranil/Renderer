@@ -119,8 +119,6 @@ void Renderer::run() {
         }
         SDL_RenderCopy(renderer, fpsInfo.textTexture, NULL, &fpsInfo.destRect);
         MEASURE(SDL_RenderPresent(renderer));
-        // printf("FrameTime: %3ldms\r", currentTick - lastTick);
-        fflush(stdout);
         lastTick = currentTick;
 
         // SDL_Delay(1000 / FPS);
